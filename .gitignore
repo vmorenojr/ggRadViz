@@ -1,0 +1,7 @@
+\.Rproj.user
+\*_cache
+\renv
+renv.lock
+.R*
+debug.log
+*.Rproj

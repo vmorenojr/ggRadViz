@@ -1,0 +1,16 @@
+base
+Radviz
+dplyr
+tibble
+knitr
+kableExtra
+ggplot2
+ggforce
+GGally
+viridisLite
+viridis
+rJava
+scagnostics
+gridExtra
+pastecs
+corrgram

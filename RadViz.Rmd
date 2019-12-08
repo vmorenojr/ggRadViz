@@ -1,0 +1,350 @@
+---
+title: "Algorithmic Placement of Dimensional Anchors in RadViz"
+author: "Valter Moreno"
+date: "10/11/2019"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: "hide"
+    theme: flatly
+    highlight: tango
+bibliography: RadViz.bib
+csl: IEEE.csl
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache=TRUE)
+options(encoding = 'UTF-8')
+
+#  prettydoc::html_pretty:
+#    theme: cayman
+#    highlight: github
+#    math: katex
+```
+
+```{r libraries, include=FALSE}
+library(Radviz) # RadViz charts
+library(dplyr)  # data manipulation
+library(knitr)  # html formatting
+library(kableExtra)  # improved formatting
+library(ggforce)  # provides additional functions to plot a 
+                  # radviz chart with ggplot2
+library(GGally)   # creates parallel coordinates charts
+library(viridis)  # additional color palettes
+library(scagnostics)  # used for ordering parallel axes
+library(gridExtra)  # arrange charts in grids
+```
+
+## Introduction
+
+RadViz charts were proposed by Hoffman et al. [@hoffman1997; see also @hoffman1999] as a means to visualize high-dimensional DNA data in a two-dimensional chart. In RadViz, variables or dimensions are represented by radial axes that are equally spaced around a circle. The intersections of the axes and the circunference are called dimensional anchors. Each observation is potitioned within the circle as if it were attached to the dimensional anchors by springs. The strength of a spring is proportional to the projection of the observation vector on the corresponding dimension. Dimensinoal anchors can be moved interactively or algorithmically to reveal patterns in the data [@sharko2008; @dicaro2010; @zhou2015; @novakova2009].
+
+<center>
+![](https://www.mdpi.com/informatics/informatics-06-00016/article_deploy/html/images/informatics-06-00016-g001-550.jpg){ width=30% }
+
+<font size="1">***The RadViz spring metaphor* [@pagliosa2019]**</font>
+</center>
+<br>
+
+A number of studies have employed [@sharko2009; @tao2011; @novakova2011; @labitzke2013; @martinez2013; @novikova2016; @han2018], criticized [@novakova2006; @rubio-sanchez2016], and extended [@novakova2006; @sharko2008; @xu2009; @dicaro2010; @ono2015; @zhou2015; @correa2016; @vanlong2016; @cheng2017; @matias2017; @wang2017; @zhou2017; @pagliosa2019] Hoffman et al.'s original method. Critics of RadViz often call attention to: 
+
+  (1) the dependence of the quality of the visualization on the order according to which the dimensional anchors are arranged in the circunference; 
+  (2) the difficulty to distinguish observations that are placed close to or on each other in the chart, even though they may have quite different projections on each dimension (e.g., observations whose projections in all dimensions have the same value will be placed on the center of the circle); and 
+  (3) the deterioration of the quality of the visualization as the number of dimensions increase. 
+  
+Accordingly, several of the proposed extensions focus on the determination of the optimal arrangement of axes around the RadViz circunference [e.g., @dicaro2010].       
+
+## A RadViz Chart of the Iris Dataset
+
+We will use the [Radviz](https://cran.r-project.org/web/packages/Radviz/) R package to create a RadViz chart to illustrate these issues. The chart will display the data contained in the [iris dataset](https://en.wikipedia.org/wiki/Iris_flower_data_set).
+
+```{r iris}
+iris %>% 
+  head() %>% 
+  kable() %>% 
+  kable_styling('striped')
+```
+
+
+Assuming that a dataset with $m$ observations and $n$ variables or dimnensions to be displayed in a RadViz chart is structured as a $m{\times}n$ matrix as follows:
+
+$$\mathbf{X} = \left[\begin{array}
+{rrr}
+x_{1,1} & x_{1,2} & \cdots & x_{1,n} \\
+x_{2,1} & x_{2,2} & \cdots & x_{2,n} \\
+\vdots  & \vdots  & \cdots & \vdots \\
+x_{m,1} & x_{m,2} & \cdots & x_{m,n} \\
+\end{array}\right]$$
+
+the point $p_i$ corresponding to observation $x_i$ will be given by:
+
+$$P_i = \sum_{j=1}^{n}\frac{x_{ij}}{\sum_{j=1}^{n}x_{ij}}v_j$$
+
+Thus, RadViz involves a non-linear transformation so that $x_{ij} \in [0, 1]$. The Radviz package provides the `do.L` function for this purpose.
+```{r iris_norm}
+iris_norm <- apply(iris[1:4],2,do.L) %>% # scale all values to [0, 1]
+  cbind(iris[5])
+  
+iris_norm %>% 
+  mutate_if(is.numeric, format, digits = 2, nsmall = 2) %>% 
+  tbl_df %>% 
+  head() %>% 
+  kable() %>% 
+  kable_styling('striped')
+```
+
+Next, we create a vector with the position of the dimensional anchors for the numeric dimensions of the iris dataset.
+
+```{r iris_anchors}
+anchors <- make.S(colnames(iris_norm[1:4]))
+colnames(anchors) <- c('x', 'y')
+
+anchors %>% 
+  kable() %>% 
+  kable_styling(full_width = F)
+```
+
+The projection of the normalized data on the 2-d circle is accomplished with the function `do.radviz`. In the following RadViz chart, observations were colored according to their species (setosa, versisolor, virginica).
+
+```{r iris_rv_auto, fig.height = 6, fig.width = 6,  fig.align='center'}
+viz <- do.radviz(iris_norm, anchors)
+plot(viz,
+     point.shape = 20, 
+     point.color = c('red','green','blue')[as.integer(iris_norm$Species)])
+```
+
+Altough the observations for the setosa species are clearly separated, those of the other two species were not. We tried to rearrange the dimensions manually, but it did not improve the results.
+
+```{r iris_manual, out.width='75%', fig.align='center'}
+
+anchors <- make.S(c("Sepal.Length", "Petal.Length", 
+                    "Sepal.Width", "Petal.Width" ))
+colnames(anchors) <- c('x', 'y')
+
+viz <- do.radviz(iris_norm, anchors)
+plot(viz,
+     point.shape = 20, 
+     point.color = c('red','green','blue')[as.integer(iris_norm$Species)])
+```
+
+As mentioned before, several authors have proposed methods to arrange the dimensional anchors in the circunference to improve the quality of the RadViz visualization [e.g., @novakova2009; @dicaro2010; @pagliosa2019]. The Radviz package includes two functions to optimally arrange the anchor points based on the radviz-independent and radviz-dependent methods developed by Di Caro et al. [-@dicaro2010]. The package uses the recommended cosine similarity measure to implement those methods.
+
+```{r iris_similarity}
+iris_sim <- cosine(as.matrix(iris_norm[-5])) # similarity matrix
+
+cat(paste('radviz-independent measure of projection efficiency:', 
+            format(in.da(anchors, iris_sim), digits = 3),
+          '\n'))
+
+cat(paste('radviz-dependent measure of projection efficiency:', 
+            format(rv.da(anchors, iris_sim), digits = 3)))
+
+```
+
+The optimization process is implemented in the `do.optim` function. First, we will try the radviz-independent optimization method.
+
+```{r iris_opt_indep}
+anchors_opt <- do.optim(anchors, iris_sim, iter = 10, n = 1000)
+
+# Note: we limited the number of iterations to 10 above to save time. However, 
+# the first time we ran the function, the limit was set to 100 and the
+# algorithm reached convergence at the sixth iteration.
+ 
+new_anchors <- make.S(tail(anchors_opt$best,1)[[1]])
+new_anchors %>% 
+  kable() %>% 
+  kable_styling(full_width = F)
+```
+
+There were no changes in the previously defined anchors. We will repeat the process for the radviz-dependent method.
+
+```{r iris_opt_dep}
+anchors_opt <- do.optim(anchors, iris_sim, iter = 10, n = 1000, optim = "rv.da")
+
+# Note: as before, we limited the number of iterations to 10 to save time.
+# When we ran the function for the first time, the limit was set to 500 
+# and the algorithm didn't converge. However, the performance measure remained
+# the same to the sixth decimal place.
+
+new_anchors <- make.S(tail(anchors_opt$best,1)[[1]])
+new_anchors %>% 
+  kable() %>% 
+  kable_styling(full_width = F)
+```
+
+Again, there were no changes in the previously defined anchors. Thus, Di Caro et al.'s [-@dicaro2010] optimization methods were unable to improve the visuzalization and help us distinguish between the observations of the versisolor and the virginica species.
+
+## A Parallel Coordinates Chart of the Iris Dataset
+
+In the first plot, we used the same type of normalization as in the Radviz package and retained the order of the axes used in the first RadViz chart. 
+
+```{r parallel}
+p1 <- iris %>% 
+  ggparcoord(
+    columns = 1:4, groupColumn = 5, order = c(1:4),
+    scale="uniminmax",
+    showPoints = TRUE, 
+    title = "Parallel Coordinates with no Axis Reordering",
+    alphaLines = 0.3
+    ) + 
+  scale_color_viridis(discrete=TRUE) +
+  theme_minimal()+
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=12)
+  ) +
+  xlab("")
+```
+
+
+```{r parallel_bw}
+p1_bw <- iris %>% 
+  ggparcoord(
+    columns = 1:4, groupColumn = NULL, order = c(1:4),
+    scale="uniminmax",
+    showPoints = TRUE, 
+    title = "Parallel Coordinates with no Axis Reordering",
+    alphaLines = 0.3
+    ) + 
+  theme_minimal()+
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=12)
+  ) +
+  xlab("")
+```
+
+We can improve the readability of the chart with the automatic ordering methods provided in the `ggpartcoord` function.
+
+```{r par_allClass}
+p2 <- iris %>% 
+  ggparcoord(
+    columns = 1:4, groupColumn = 5, order = "allClass",
+    scale="uniminmax",
+    showPoints = TRUE, 
+    title = "Parallel Coordinates with the allClass Reordering Method",
+    alphaLines = 0.3
+    ) + 
+  scale_color_viridis(discrete=TRUE) +
+  theme_minimal()+
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=12)
+  ) +
+  xlab("")
+```
+
+
+```{r par_skeweness}
+p3 <- iris %>% 
+  ggparcoord(
+    columns = 1:4, groupColumn = 5, order = "skewness",
+    scale="uniminmax",
+    showPoints = TRUE, 
+    title = "Parallel Coordinates with the skewness Reordering Method",
+    alphaLines = 0.3
+    ) + 
+  scale_color_viridis(discrete=TRUE) +
+  theme_minimal()+
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=12)
+  ) +
+  xlab("")
+```
+
+```{r par_skeweness_bw}
+p3_bw <- iris %>% 
+  ggparcoord(
+    columns = 1:4, groupColumn = NULL, order = "skewness",
+    scale="uniminmax",
+    showPoints = TRUE, 
+    title = "Parallel Coordinates with the skewness Reordering Method",
+    alphaLines = 0.3
+    ) + 
+  theme_minimal()+
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=12)
+  ) +
+  xlab("")
+```
+
+```{r par_skagnostics}
+p4 <- iris %>% 
+  ggparcoord(
+    columns = 1:4, groupColumn = 5, order = "Outlying",
+    scale="uniminmax",
+    showPoints = TRUE, 
+    title = "Parallel Coordinates with the skagnostics Outlying Reordering Method",
+    alphaLines = 0.3
+    ) + 
+  scale_color_viridis(discrete=TRUE) +
+  theme_minimal()+
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=12)
+  ) +
+  xlab("")
+```
+
+```{r par_skagnostics_bw}
+p4_bw <- iris %>% 
+  ggparcoord(
+    columns = 1:4, groupColumn = NULL, order = "Outlying",
+    scale="uniminmax",
+    showPoints = TRUE, 
+    title = "Parallel Coordinates the skagnostics Outlying Reordering Method",
+    alphaLines = 0.3
+    ) + 
+  theme_minimal()+
+  theme(
+    legend.position="none",
+    plot.title = element_text(size=12)
+  ) +
+  xlab("")
+```
+
+
+```{r par_grid1, fig.height = 14, fig.width = 7}
+grid.arrange(p1, p2, p3, p4, ncol = 1)
+```
+
+Next, we removed the colors we used above to identify the species to check which type of reordering would provide the strongest evidence of the existence of clusters in our dataset. Although all charts seem to reveal the existence two clusters, the on with the `skagnostics` package Outlying method makes the characteristics of the clusters clearer: while the lower one comprises flowers with lower values of petal width and length, as well as of sepal length, and higher values of sepal width than those of the other species.
+
+```{r par_grid2, fig.height = 14, fig.width = 7}
+grid.arrange(p1_bw, p3_bw, p4_bw, ncol = 1)
+```
+
+
+In the following chart, we highlighted in black the group of lines that detach themselves from the other ones when we use the skagnostics Outlying reordering method. The observations corresponding to the black lines can be easily identified in the data set by their low values in the Petal.Width and Pethal.Length variables. A quick inspection reveal that they correspond to flowers of the setosa species.
+
+```{r par_skag_highlight}
+iris %>%
+  ggparcoord(
+    columns = 1:4, groupColumn = 5, order = "Outlying",
+    showPoints = TRUE, 
+    title = "Highlight a Subset of the Iris Dataset",
+    alphaLines = 0.3
+    ) + 
+  scale_color_manual(values=c( "black", "grey", "grey") ) +
+  theme_minimal()+
+  theme(
+    legend.position="Default",
+    plot.title = element_text(size=12)
+  ) +
+  xlab("")
+```
+
+As with the RadViz charts, it is much harder, nevertheless, to distinguish the lines related to the versicolor and virginica species.
+
+
+## Objectives of the Study
+
+The iris dataset highlights some of the problems with RadViz charts discussed in the literature [see @pagliosa2019; also @novakova2006; @rubio-sanchez2016]. In particular, the resulting charts placed the observations of two groups with distinct characteristics close to each other, which violates the Gestalt laws of proximity and similarity and, thereby, impact the human analytic process  [@sacha2017; @nonato2019]. 
+
+In this study, we implement and compare two of the most recent proposed methods and assess their capacity to mitigate such weaknesses, namely Pagliosa and Telea's [-@pagliosa2019] and Cheng, Xu and Mueller's [-@cheng2017]. In particular, we will look into techniques that try to improve the placement of dimensional anchors in the circunference of the chart to help better identify clusters of observations and outliers. Instead of employing the basic plot system of R, as the Radviz package does, our implementation takes advantage of the ggplot2 package, which has become the de facto standard for the creation of visualizations in R.
+
+## References
